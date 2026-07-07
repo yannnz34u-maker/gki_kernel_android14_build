@@ -36,7 +36,8 @@ jobs:
             bc bison build-essential ccache cpio flex \
             git libelf-dev libssl-dev lz4 lzip ninja-build \
             python3 python3-pip rsync unzip zip zlib1g-dev \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            dwarves depmod
           # 安装 repo 工具
           sudo curl -o /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           sudo chmod a+x /usr/local/bin/repo
@@ -84,41 +85,30 @@ jobs:
 
       - name: 编译 GKI 内核
         run: |
-          cd gki-kernel
+          cd gki-kernel/common
 
           # 设置环境变量
           export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
           export CC="ccache aarch64-linux-gnu-gcc"
           export CCACHE_COMPRESS=1
 
-          echo "=== 使用 build.config: ${{ inputs.build_config }} ==="
+          echo "=== 生成 defconfig ==="
+          make ARCH=arm64 gki_defconfig
 
-          # 查找 build.sh 的位置
-          BUILD_SH=""
-          for f in build/build.sh common/build/build.sh build.sh; do
-            if [ -f "$f" ]; then
-              BUILD_SH="$f"
-              break
-            fi
-          done
+          echo "=== 禁用 BTF (pahole 在 build.sh 环境中不可用) ==="
+          scripts/config --disable DEBUG_INFO_BTF
+          scripts/config --disable DEBUG_INFO_BTF_MODULES
+          make ARCH=arm64 olddefconfig
 
-          if [ -n "$BUILD_SH" ]; then
-            echo "找到 build.sh: $BUILD_SH"
-            # 使用官方 build.sh + build.config 编译
-            BUILD_CONFIG=${{ inputs.build_config }} $BUILD_SH
-          else
-            echo "未找到 build.sh，使用标准 make 编译"
-            cd common
-            make ARCH=arm64 gki_defconfig
-            make -j$(nproc) \
-              CC="ccache aarch64-linux-gnu-gcc" \
-              CROSS_COMPILE=aarch64-linux-gnu- \
-              ARCH=arm64
-            cd ..
-          fi
+          echo "=== 开始编译 ==="
+          make -j$(nproc) \
+            ARCH=arm64 \
+            CC="ccache aarch64-linux-gnu-gcc" \
+            CROSS_COMPILE=aarch64-linux-gnu-
 
           echo "=== 编译完成 ==="
-          find . -name "Image" -o -name "Image.gz" | head -10
+          ls -lh arch/arm64/boot/Image*
 
       - name: 收集产物
         run: |
