@@ -29,7 +29,7 @@ jobs:
           echo "=== 磁盘空间 ==="
           df -h
 
-      - name: 安装编译依赖 + ccache
+      - name: 安装编译依赖 + ccache + repo
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
@@ -37,8 +37,12 @@ jobs:
             git libelf-dev libssl-dev lz4 lzip ninja-build \
             python3 python3-pip rsync unzip zip zlib1g-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          # 安装 repo 工具
+          sudo curl -o /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+          sudo chmod a+x /usr/local/bin/repo
           echo "=== 工具链版本 ==="
           aarch64-linux-gnu-gcc --version | head -1
+          repo --version || true
 
       - name: 创建 4GB Swap
         run: |
@@ -61,66 +65,75 @@ jobs:
           restore-keys: |
             ccache-gki-${{ inputs.kernel_branch }}-
 
-      - name: 克隆 Google 官方内核源代码
+      - name: 使用 repo 下载 Google 官方内核源代码
         run: |
-          echo "=== 克隆 android/common ${{ inputs.kernel_branch }} ==="
-          git clone --depth=1 --single-branch \
-            -b ${{ inputs.kernel_branch }} \
-            https://android.googlesource.com/kernel/common kernel
-          cd kernel
-          echo "=== 最新提交 ==="
-          git log -1 --oneline
+          echo "=== 使用 repo 下载 ${{ inputs.kernel_branch }} ==="
+          mkdir -p gki-kernel
+          cd gki-kernel
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          repo init -u https://android.googlesource.com/kernel/manifest -b ${{ inputs.kernel_branch }}
+          repo sync -c -j$(nproc)
+
+          echo "=== 目录结构 ==="
+          ls -la
+          echo "=== common 目录 ==="
+          ls -la common/ 2>/dev/null || true
           echo "=== 内核版本 ==="
-          head -5 Makefile
+          head -5 common/Makefile 2>/dev/null || head -5 Makefile 2>/dev/null || true
 
       - name: 编译 GKI 内核
         run: |
-          cd kernel
+          cd gki-kernel
 
           # 设置环境变量
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
           export CC="ccache aarch64-linux-gnu-gcc"
           export CCACHE_COMPRESS=1
 
           echo "=== 使用 build.config: ${{ inputs.build_config }} ==="
 
-          # 使用内核自带的 build.sh + build.config 进行编译
-          # 这是 Google 官方推荐的编译方式
-          if [ -f "build.config.gki.aarch64" ]; then
-            echo "找到 GKI build.config，使用官方 build.sh 编译"
-            BUILD_CONFIG=${{ inputs.build_config }} build/build.sh
+          # 查找 build.sh 的位置
+          BUILD_SH=""
+          for f in build/build.sh common/build/build.sh build.sh; do
+            if [ -f "$f" ]; then
+              BUILD_SH="$f"
+              break
+            fi
+          done
+
+          if [ -n "$BUILD_SH" ]; then
+            echo "找到 build.sh: $BUILD_SH"
+            # 使用官方 build.sh + build.config 编译
+            BUILD_CONFIG=${{ inputs.build_config }} $BUILD_SH
           else
-            echo "未找到 build.config，使用标准 defconfig 编译"
-            make gki_defconfig
+            echo "未找到 build.sh，使用标准 make 编译"
+            cd common
+            make ARCH=arm64 gki_defconfig
             make -j$(nproc) \
               CC="ccache aarch64-linux-gnu-gcc" \
               CROSS_COMPILE=aarch64-linux-gnu- \
               ARCH=arm64
+            cd ..
           fi
 
           echo "=== 编译完成 ==="
-          ls -lh arch/arm64/boot/Image*
+          find . -name "Image" -o -name "Image.gz" | head -10
 
       - name: 收集产物
         run: |
           mkdir -p artifacts
-          cd kernel
+          cd gki-kernel
 
-          # 内核镜像
-          cp arch/arm64/boot/Image ../artifacts/ 2>/dev/null || true
-          cp arch/arm64/boot/Image.gz ../artifacts/ 2>/dev/null || true
+          # 查找并复制内核镜像
+          find . -name "Image" -exec cp {} ../artifacts/ \; 2>/dev/null || true
+          find . -name "Image.gz" -exec cp {} ../artifacts/ \; 2>/dev/null || true
 
           # 内核模块
           find . -name "*.ko" -exec cp {} ../artifacts/ \; 2>/dev/null || true
 
           # vmlinux (用于调试)
-          cp vmlinux ../artifacts/ 2>/dev/null || true
-
-          # kernel-headers (用于模块编译)
-          if [ -f out/ ]; then
-            cp -r out/ ../artifacts/kernel-out/ 2>/dev/null || true
-          fi
+          find . -name "vmlinux" -size +1M -exec cp {} ../artifacts/ \; 2>/dev/null || true
 
           cd ..
           echo "=== 产物列表 ==="
