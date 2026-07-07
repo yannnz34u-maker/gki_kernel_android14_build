@@ -87,7 +87,7 @@ jobs:
 
       - name: 生成 defconfig_fragment
         run: |
-          cat > gki_defconfig_fragment <<'EOF'
+          cat > gki-kernel/common/gki_defconfig_fragment <<'EOF'
           # CONFIG_ARCH_SUNXI is not set
           # CONFIG_ARCH_BCM is not set
           # CONFIG_ARCH_BRCMSTB is not set
@@ -135,7 +135,7 @@ jobs:
           CONFIG_ZRAM_DEF_COMP="zstd"
           EOF
           echo "=== defconfig_fragment ==="
-          cat gki_defconfig_fragment
+          cat gki-kernel/common/gki_defconfig_fragment
 
       - name: 使用 Kleaf (Bazel) 编译 GKI 内核
         run: |
@@ -152,7 +152,7 @@ jobs:
           tools/bazel build \
             --config=fast \
             --lto=thin \
-            --defconfig_fragment=$GITHUB_WORKSPACE/gki_defconfig_fragment \
+            --defconfig_fragment=//common:gki_defconfig_fragment \
             --jobs="$(nproc)" \
             //common:kernel_aarch64_dist \
             -- --dist_dir=out/dist
