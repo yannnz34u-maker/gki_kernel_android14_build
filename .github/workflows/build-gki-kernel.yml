@@ -149,7 +149,7 @@ jobs:
           tools/bazel --version 2>/dev/null || true
 
           echo "=== 开始 Kleaf/Bazel 编译 ==="
-          tools/bazel build \
+          tools/bazel run \
             --config=fast \
             --lto=thin \
             --defconfig_fragment=//common:gki_defconfig_fragment \
