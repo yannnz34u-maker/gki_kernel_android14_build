@@ -85,6 +85,58 @@ jobs:
           echo "=== 内核版本 ==="
           head -5 common/Makefile 2>/dev/null || true
 
+      - name: 生成 defconfig_fragment
+        run: |
+          cat > gki_defconfig_fragment <<'EOF'
+          # CONFIG_ARCH_SUNXI is not set
+          # CONFIG_ARCH_BCM is not set
+          # CONFIG_ARCH_BRCMSTB is not set
+          # CONFIG_ARCH_HISI is not set
+          # CONFIG_ARCH_TEGRA is not set
+          # CONFIG_MTK_GZVM is not set
+          # CONFIG_ARM_SCPI_CPUFREQ is not set
+          # CONFIG_ARM_SCMI_CPUFREQ is not set
+          # CONFIG_ARM_SCMI_PROTOCOL is not set
+          # CONFIG_ARM_SCMI_TRANSPORT_VIRTIO is not set
+          # CONFIG_ARM_SCPI_PROTOCOL is not set
+          # CONFIG_SOC_BRCMSTB is not set
+          # CONFIG_ARCH_TEGRA_234_SOC is not set
+          # CONFIG_KASAN is not set
+          # CONFIG_KASAN_HW_TAGS is not set
+          # CONFIG_KFENCE is not set
+          # CONFIG_UBSAN is not set
+          # CONFIG_UBSAN_TRAP is not set
+          # CONFIG_UBSAN_LOCAL_BOUNDS is not set
+          # CONFIG_PAGE_OWNER is not set
+          # CONFIG_PAGE_PINNER is not set
+          # CONFIG_PER_VMA_LOCK_STATS is not set
+          # CONFIG_DEBUG_MEMORY_INIT is not set
+          # CONFIG_TRACE_MMIO_ACCESS is not set
+          # CONFIG_BUG_ON_DATA_CORRUPTION is not set
+          # CONFIG_DEBUG_INFO_DWARF4 is not set
+          # CONFIG_SOFTLOCKUP_DETECTOR is not set
+          # CONFIG_WQ_WATCHDOG is not set
+          # CONFIG_SCHEDSTATS is not set
+          # CONFIG_HIST_TRIGGERS is not set
+          # CONFIG_PRINTK_CALLER is not set
+          # CONFIG_DYNAMIC_DEBUG_CORE is not set
+          # CONFIG_PM_DEBUG is not set
+          # CONFIG_PM_ADVANCED_DEBUG is not set
+          # CONFIG_CMA_DEBUGFS is not set
+          # CONFIG_KUNIT is not set
+          # CONFIG_HIBERNATION is not set
+          # CONFIG_UAPI_HEADER_TEST is not set
+          # CONFIG_WERROR is not set
+          CONFIG_MODULE_SIG_SHA256=y
+          # CONFIG_MODULE_SIG_SHA1 is not set
+          CONFIG_MODULE_SIG_HASH="sha256"
+          CONFIG_ZRAM_DEF_COMP_ZSTD=y
+          # CONFIG_ZRAM_DEF_COMP_LZORLE is not set
+          CONFIG_ZRAM_DEF_COMP="zstd"
+          EOF
+          echo "=== defconfig_fragment ==="
+          cat gki_defconfig_fragment
+
       - name: 使用 Kleaf (Bazel) 编译 GKI 内核
         run: |
           cd gki-kernel
@@ -97,11 +149,10 @@ jobs:
           tools/bazel --version 2>/dev/null || true
 
           echo "=== 开始 Kleaf/Bazel 编译 ==="
-          # 使用 Bazel (Kleaf) 构建 GKI aarch64 内核
-          # --config=fast: 加速构建 (禁用 ABI 监控等非必要步骤)
-          # --jobs: 限制并行任务数以控制内存使用
           tools/bazel build \
             --config=fast \
+            --lto=thin \
+            --defconfig_fragment=$GITHUB_WORKSPACE/gki_defconfig_fragment \
             --jobs="$(nproc)" \
             //common:kernel_aarch64_dist \
             -- --dist_dir=out/dist
