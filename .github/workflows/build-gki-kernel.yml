@@ -7,10 +7,6 @@ on:
         description: '内核分支'
         required: true
         default: 'common-android14-6.1'
-      build_config:
-        description: '构建配置 (build.config 文件名)'
-        required: true
-        default: 'build.config.gki.aarch64'
 
 env:
   CCACHE_DIR: ~/.ccache
@@ -29,20 +25,17 @@ jobs:
           echo "=== 磁盘空间 ==="
           df -h
 
-      - name: 安装编译依赖 + ccache + repo
+      - name: 安装编译依赖 + repo
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
             bc bison build-essential ccache cpio flex \
             git libelf-dev libssl-dev lz4 lzip ninja-build \
-            python3 python3-pip rsync unzip zip zlib1g-dev \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            dwarves kmod
+            python3 python3-pip rsync unzip zip zlib1g-dev
           # 安装 repo 工具
           sudo curl -o /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           sudo chmod a+x /usr/local/bin/repo
-          echo "=== 工具链版本 ==="
-          aarch64-linux-gnu-gcc --version | head -1
+          echo "=== repo 版本 ==="
           repo --version || true
 
       - name: 创建 4GB Swap
@@ -58,13 +51,16 @@ jobs:
           fi
           free -h
 
-      - name: 恢复 ccache 缓存
+      - name: 恢复 Bazel 缓存
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
-          key: ccache-gki-${{ inputs.kernel_branch }}-${{ github.run_id }}
+          path: |
+            ~/.ccache
+            gki-kernel/bazel-bin
+            gki-kernel/bazel-out
+          key: bazel-gki-${{ inputs.kernel_branch }}-${{ github.run_id }}
           restore-keys: |
-            ccache-gki-${{ inputs.kernel_branch }}-
+            bazel-gki-${{ inputs.kernel_branch }}-
 
       - name: 使用 repo 下载 Google 官方内核源代码
         run: |
@@ -78,37 +74,41 @@ jobs:
 
           echo "=== 目录结构 ==="
           ls -la
-          echo "=== common 目录 ==="
-          ls -la common/ 2>/dev/null || true
+          echo "=== tools/bazel ==="
+          ls -la tools/bazel 2>/dev/null || true
+          echo "=== WORKSPACE ==="
+          ls -la WORKSPACE 2>/dev/null || true
+          echo "=== prebuilts/clang ==="
+          ls prebuilts/clang/host/linux-x86/ 2>/dev/null | head -5 || true
+          echo "=== prebuilts/bazel ==="
+          ls prebuilts/bazel/linux-x86_64/ 2>/dev/null | head -5 || true
           echo "=== 内核版本 ==="
-          head -5 common/Makefile 2>/dev/null || head -5 Makefile 2>/dev/null || true
+          head -5 common/Makefile 2>/dev/null || true
 
-      - name: 编译 GKI 内核
+      - name: 使用 Kleaf (Bazel) 编译 GKI 内核
         run: |
-          cd gki-kernel/common
+          cd gki-kernel
 
-          # 设置环境变量
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="ccache aarch64-linux-gnu-gcc"
-          export CCACHE_COMPRESS=1
+          echo "=== Clang 工具链版本 ==="
+          prebuilts/clang/host/linux-x86/clang-r487747c/bin/clang --version 2>/dev/null || \
+          ls prebuilts/clang/host/linux-x86/ 2>/dev/null || true
 
-          echo "=== 生成 defconfig ==="
-          make ARCH=arm64 gki_defconfig
+          echo "=== Bazel 版本 ==="
+          tools/bazel --version 2>/dev/null || true
 
-          echo "=== 禁用 BTF (pahole 在 build.sh 环境中不可用) ==="
-          scripts/config --disable DEBUG_INFO_BTF
-          scripts/config --disable DEBUG_INFO_BTF_MODULES
-          make ARCH=arm64 olddefconfig
-
-          echo "=== 开始编译 ==="
-          make -j$(nproc) \
-            ARCH=arm64 \
-            CC="ccache aarch64-linux-gnu-gcc" \
-            CROSS_COMPILE=aarch64-linux-gnu-
+          echo "=== 开始 Kleaf/Bazel 编译 ==="
+          # 使用 Bazel (Kleaf) 构建 GKI aarch64 内核
+          # --config=fast: 加速构建 (禁用 ABI 监控等非必要步骤)
+          # --jobs: 限制并行任务数以控制内存使用
+          tools/bazel build \
+            --config=fast \
+            --jobs="$(nproc)" \
+            //common:kernel_aarch64_dist \
+            -- --dist_dir=out/dist
 
           echo "=== 编译完成 ==="
-          ls -lh arch/arm64/boot/Image*
+          echo "=== dist 产物列表 ==="
+          ls -lah out/dist/
 
       - name: 克隆 AnyKernel3
         run: |
@@ -118,38 +118,50 @@ jobs:
 
       - name: 打包 AnyKernel3 刷机包
         run: |
-          KERNEL_IMG="gki-kernel/common/arch/arm64/boot/Image"
-          KERNEL_GZ="gki-kernel/common/arch/arm64/boot/Image.gz"
+          KERNEL_IMG="gki-kernel/out/dist/Image"
+          KERNEL_GZ="gki-kernel/out/dist/Image.gz"
 
-          if [ ! -f "$KERNEL_IMG" ]; then
-            echo "ERROR: 找不到内核镜像 Image"
+          if [ ! -f "$KERNEL_IMG" ] && [ ! -f "$KERNEL_GZ" ]; then
+            echo "ERROR: 找不到内核镜像"
+            echo "dist 目录内容:"
+            ls -lah gki-kernel/out/dist/ || true
             exit 1
           fi
 
-          # 获取内核版本
-          KERNEL_VERSION=$(cd gki-kernel/common && make ARCH=arm64 kernelrelease 2>/dev/null || echo "gki")
-          echo "内核版本: $KERNEL_VERSION"
+          echo "=== AnyKernel3 目录结构 ==="
+          ls -la AnyKernel3/
 
           # 复制内核镜像到 AnyKernel3
-          cp "$KERNEL_GZ" AnyKernel3/Image.gz 2>/dev/null || cp "$KERNEL_IMG" AnyKernel3/Image 2>/dev/null
-
-          # 修改 anykernel3.sh 配置
-          sed -i 's|kernel.string=.*|kernel.string=GKI Android14-6.1 (arm64)|' AnyKernel3/anykernel3.sh
-          sed -i 's|block=.*|block=auto;|' AnyKernel3/anykernel3.sh
-          # GKI 内核使用 Image.gz
           if [ -f "$KERNEL_GZ" ]; then
-            sed -i 's|kernel_type=.*|kernel_type=Image.gz|' AnyKernel3/anykernel3.sh
+            cp "$KERNEL_GZ" AnyKernel3/Image.gz
+            echo "使用 Image.gz"
           else
-            sed -i 's|kernel_type=.*|kernel_type=Image|' AnyKernel3/anykernel3.sh
+            cp "$KERNEL_IMG" AnyKernel3/Image
+            echo "使用 Image"
           fi
 
-          echo "=== anykernel3.sh 配置 ==="
-          head -30 AnyKernel3/anykernel3.sh
+          # AK3 配置文件是 anykernel.sh (不是 anykernel3.sh)
+          AK3_CFG="AnyKernel3/anykernel.sh"
+          if [ ! -f "$AK3_CFG" ]; then
+            echo "ERROR: 找不到 anykernel.sh"
+            ls -la AnyKernel3/
+            exit 1
+          fi
 
-          # 打包 AK3 zip
+          # 修改 anykernel.sh 配置
+          sed -i 's|kernel.string=.*|kernel.string=GKI Android14-6.1 Kleaf (arm64)|' "$AK3_CFG"
+          sed -i 's|^BLOCK=.*|BLOCK=auto;|' "$AK3_CFG"
+          sed -i 's|^do.devicecheck=.*|do.devicecheck=0|' "$AK3_CFG"
+          sed -i 's|^do.modules=.*|do.modules=0|' "$AK3_CFG"
+          sed -i 's|^do.systemless=.*|do.systemless=0|' "$AK3_CFG"
+
+          echo "=== anykernel.sh 配置 ==="
+          head -30 "$AK3_CFG"
+
+          # 打包 AK3 zip (按官方文档: -x .git README.md *placeholder)
           cd AnyKernel3
           rm -rf .git .github
-          zip -r9 ../GKI-Android14-6.1-AK3.zip * -x "*.git*"
+          zip -r9 ../GKI-Android14-6.1-AK3.zip * -x .git README.md *placeholder
           cd ..
 
           echo "=== AK3 刷机包 ==="
@@ -158,16 +170,14 @@ jobs:
       - name: 收集产物
         run: |
           mkdir -p artifacts
-          cp gki-kernel/common/arch/arm64/boot/Image artifacts/ 2>/dev/null || true
-          cp gki-kernel/common/arch/arm64/boot/Image.gz artifacts/ 2>/dev/null || true
+
+          # 从 Bazel dist 目录复制内核镜像
+          cp gki-kernel/out/dist/Image artifacts/ 2>/dev/null || true
+          cp gki-kernel/out/dist/Image.gz artifacts/ 2>/dev/null || true
           cp GKI-Android14-6.1-AK3.zip artifacts/ 2>/dev/null || true
 
           echo "=== 产物列表 ==="
           ls -lah artifacts/
-
-      - name: 保存 ccache 统计
-        run: |
-          ccache -s || true
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
