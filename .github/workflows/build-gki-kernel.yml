@@ -110,22 +110,58 @@ jobs:
           echo "=== 编译完成 ==="
           ls -lh arch/arm64/boot/Image*
 
+      - name: 克隆 AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+          echo "=== AnyKernel3 目录 ==="
+          ls -la AnyKernel3/
+
+      - name: 打包 AnyKernel3 刷机包
+        run: |
+          KERNEL_IMG="gki-kernel/common/arch/arm64/boot/Image"
+          KERNEL_GZ="gki-kernel/common/arch/arm64/boot/Image.gz"
+
+          if [ ! -f "$KERNEL_IMG" ]; then
+            echo "ERROR: 找不到内核镜像 Image"
+            exit 1
+          fi
+
+          # 获取内核版本
+          KERNEL_VERSION=$(cd gki-kernel/common && make ARCH=arm64 kernelrelease 2>/dev/null || echo "gki")
+          echo "内核版本: $KERNEL_VERSION"
+
+          # 复制内核镜像到 AnyKernel3
+          cp "$KERNEL_GZ" AnyKernel3/Image.gz 2>/dev/null || cp "$KERNEL_IMG" AnyKernel3/Image 2>/dev/null
+
+          # 修改 anykernel3.sh 配置
+          sed -i 's|kernel.string=.*|kernel.string=GKI Android14-6.1 (arm64)|' AnyKernel3/anykernel3.sh
+          sed -i 's|block=.*|block=auto;|' AnyKernel3/anykernel3.sh
+          # GKI 内核使用 Image.gz
+          if [ -f "$KERNEL_GZ" ]; then
+            sed -i 's|kernel_type=.*|kernel_type=Image.gz|' AnyKernel3/anykernel3.sh
+          else
+            sed -i 's|kernel_type=.*|kernel_type=Image|' AnyKernel3/anykernel3.sh
+          fi
+
+          echo "=== anykernel3.sh 配置 ==="
+          head -30 AnyKernel3/anykernel3.sh
+
+          # 打包 AK3 zip
+          cd AnyKernel3
+          rm -rf .git .github
+          zip -r9 ../GKI-Android14-6.1-AK3.zip * -x "*.git*"
+          cd ..
+
+          echo "=== AK3 刷机包 ==="
+          ls -lah GKI-Android14-6.1-AK3.zip
+
       - name: 收集产物
         run: |
           mkdir -p artifacts
-          cd gki-kernel
+          cp gki-kernel/common/arch/arm64/boot/Image artifacts/ 2>/dev/null || true
+          cp gki-kernel/common/arch/arm64/boot/Image.gz artifacts/ 2>/dev/null || true
+          cp GKI-Android14-6.1-AK3.zip artifacts/ 2>/dev/null || true
 
-          # 查找并复制内核镜像
-          find . -name "Image" -exec cp {} ../artifacts/ \; 2>/dev/null || true
-          find . -name "Image.gz" -exec cp {} ../artifacts/ \; 2>/dev/null || true
-
-          # 内核模块
-          find . -name "*.ko" -exec cp {} ../artifacts/ \; 2>/dev/null || true
-
-          # vmlinux (用于调试)
-          find . -name "vmlinux" -size +1M -exec cp {} ../artifacts/ \; 2>/dev/null || true
-
-          cd ..
           echo "=== 产物列表 ==="
           ls -lah artifacts/
 
