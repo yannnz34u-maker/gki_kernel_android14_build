@@ -88,26 +88,10 @@ jobs:
       - name: 生成 defconfig_fragment
         run: |
           cat > gki-kernel/common/gki_defconfig_fragment <<'EOF'
-          # CONFIG_KASAN is not set
-          # CONFIG_KASAN_HW_TAGS is not set
-          # CONFIG_KFENCE is not set
-          # CONFIG_UBSAN is not set
-          # CONFIG_PAGE_OWNER is not set
-          # CONFIG_PER_VMA_LOCK_STATS is not set
-          # CONFIG_DEBUG_MEMORY_INIT is not set
-          # CONFIG_TRACE_MMIO_ACCESS is not set
-          # CONFIG_BUG_ON_DATA_CORRUPTION is not set
           # CONFIG_DEBUG_INFO_DWARF4 is not set
-          # CONFIG_SOFTLOCKUP_DETECTOR is not set
-          # CONFIG_WQ_WATCHDOG is not set
-          # CONFIG_HIST_TRIGGERS is not set
-          # CONFIG_PRINTK_CALLER is not set
-          # CONFIG_DYNAMIC_DEBUG_CORE is not set
           # CONFIG_PM_DEBUG is not set
           # CONFIG_PM_ADVANCED_DEBUG is not set
           # CONFIG_CMA_DEBUGFS is not set
-          # CONFIG_KUNIT is not set
-          # CONFIG_HIBERNATION is not set
           # CONFIG_UAPI_HEADER_TEST is not set
           # CONFIG_WERROR is not set
           EOF
