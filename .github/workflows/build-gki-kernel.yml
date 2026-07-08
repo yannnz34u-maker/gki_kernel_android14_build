@@ -162,7 +162,9 @@ jobs:
 
           # 修改 anykernel.sh 配置
           sed -i 's|kernel.string=.*|kernel.string=GKI Android14-6.1 Kleaf (arm64)|' "$AK3_CFG"
-          sed -i 's|^BLOCK=.*|BLOCK=auto;|' "$AK3_CFG"
+          sed -i 's|^BLOCK=.*|BLOCK=/dev/block/by-name/boot;|' "$AK3_CFG"
+          sed -i '/^IS_SLOT_DEVICE/d' "$AK3_CFG"
+          sed -i '/^do.devicecheck/a IS_SLOT_DEVICE=auto;' "$AK3_CFG"
           sed -i 's|^do.devicecheck=.*|do.devicecheck=0|' "$AK3_CFG"
           sed -i 's|^do.modules=.*|do.modules=0|' "$AK3_CFG"
           sed -i 's|^do.systemless=.*|do.systemless=0|' "$AK3_CFG"
