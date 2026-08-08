@@ -18,18 +18,8 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-
-      # =========================
-      # CHECKOUT
-      # =========================
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # =========================
-      # DEPENDENCIES
-      # =========================
 
       - name: Install dependencies
         run: |
@@ -53,11 +43,6 @@ jobs:
             lz4 \
             zstd
 
-
-      # =========================
-      # DOWNLOAD AOSP JSON
-      # =========================
-
       - name: Download AOSP GKI release JSON
         run: |
           curl -L \
@@ -67,11 +52,6 @@ jobs:
           python3 -m json.tool gki-releases.json > /dev/null
 
           echo "AOSP JSON OK"
-
-
-      # =========================
-      # READ JSON
-      # =========================
 
       - name: Get GKI release information
         id: gki
@@ -125,11 +105,6 @@ jobs:
               out.write(f"kernel_bid={found['kernel_bid']}\n")
           PY
 
-
-      # =========================
-      # CLONE EXACT GKI SOURCE
-      # =========================
-
       - name: Clone AOSP kernel common
         run: |
           git clone \
@@ -150,21 +125,11 @@ jobs:
           echo "===== KERNEL VERSION ====="
           make kernelversion
 
-
-      # =========================
-      # USE AOSP BUILD TOOLCHAIN
-      # =========================
-
       - name: Clone AOSP Clang
         run: |
           git clone --depth=1 \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
             clang
-
-
-      # =========================
-      # FIND CLANG
-      # =========================
 
       - name: Setup Clang
         run: |
@@ -183,11 +148,6 @@ jobs:
 
           echo "CLANG_BIN=$CLANG_BIN"
 
-
-      # =========================
-      # CONFIGURE GKI
-      # =========================
-
       - name: Configure GKI
         working-directory: kernel
         run: |
@@ -198,10 +158,6 @@ jobs:
             gki_defconfig
 
 
-      # =========================
-      # BUILD
-      # =========================
-
       - name: Build Image
         working-directory: kernel
         run: |
@@ -210,11 +166,6 @@ jobs:
             ARCH=arm64 \
             LLVM=1 \
             LLVM_IAS=1
-
-
-      # =========================
-      # VERIFY
-      # =========================
 
       - name: Verify kernel
         run: |
@@ -236,11 +187,6 @@ jobs:
           echo "=============================="
 
           cat kernel/out/include/config/kernel.release
-
-
-      # =========================
-      # PACKAGE IMAGE
-      # =========================
 
       - name: Package Image
         run: |
@@ -264,11 +210,6 @@ jobs:
           SHA1: ${{ steps.gki.outputs.sha1 }}
           Kernel BID: ${{ steps.gki.outputs.kernel_bid }}
           EOF
-
-
-      # =========================
-      # UPLOAD
-      # =========================
 
       - name: Upload GKI Image
         uses: actions/upload-artifact@v4
