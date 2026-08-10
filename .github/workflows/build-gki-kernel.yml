@@ -1,113 +1,72 @@
-name: Build POCO X7 GKI 6.1
+name: Build GKI android14-6.1.174
+
+# Target: android14-6.1.174_r00
+# commit kernel/common (terverifikasi): 8a20a57e3d2fbfb94c9548b002ed0298f93d4e75
+# https://android.googlesource.com/kernel/common/+/refs/tags/android14-6.1.174_r00
 
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: "GKI branch"
-        required: true
-        default: "android14-6.1-2026-03"
-
-      release:
-        description: "Release tag"
-        required: true
-        default: "android14-6.1-2026-03_r5"
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
+      - name: Free up disk space
         run: |
-          sudo apt-get update
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h
 
-          sudo apt-get install -y \
-            git \
-            bc \
-            bison \
-            flex \
-            build-essential \
-            libssl-dev \
-            libelf-dev \
-            pahole \
-            python3 \
-            python3-pip \
-            zip \
-            unzip \
-            cpio \
-            rsync \
-            lz4 \
-            zstd
-
-      - name: Download AOSP GKI release JSON
+      - name: Install repo tool
         run: |
-          curl -L \
-            "https://source.android.com/static/docs/core/architecture/kernel/gki-android14-6_1-release-builds.json" \
-            -o gki-releases.json
+          mkdir -p ~/.bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          chmod a+x ~/.bin/repo
+          echo "$HOME/.bin" >> "$GITHUB_PATH"
 
-          python3 -m json.tool gki-releases.json > /dev/null
-
-          echo "AOSP JSON OK"
-
-      - name: Get GKI release information
-        id: gki
-        env:
-          BRANCH: ${{ inputs.branch }}
-          RELEASE: ${{ inputs.release }}
+      - name: Configure git identity
         run: |
-          python3 <<'PY'
-          import json
-          import os
-          import sys
+          git config --global user.name "gki-build-bot"
+          git config --global user.email "gki-build-bot@example.com"
+          git config --global color.ui false
 
-          branch_name = os.environ["BRANCH"]
-          release_tag = os.environ["RELEASE"]
-
-          with open("gki-releases.json", "r") as f:
-              data = json.load(f)
-
-          found = None
-
-          for branch in data["branches"]:
-              if branch["name"] != branch_name:
-                  continue
-
-              for release in branch["releases"]:
-                  if release["tag"] == release_tag:
-                      found = {
-                          "branch": branch["name"],
-                          "kernel_version": branch["kernel_version"],
-                          "tag": release["tag"],
-                          "sha1": release["sha1"],
-                          "kernel_bid": release["kernel_bid"]
-                      }
-                      break
-
-          if found is None:
-              print("GKI release tidak ditemukan!")
-              sys.exit(1)
-
-          print("Branch       :", found["branch"])
-          print("Kernel       :", found["kernel_version"])
-          print("Tag          :", found["tag"])
-          print("SHA1         :", found["sha1"])
-          print("Kernel BID   :", found["kernel_bid"])
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-              out.write(f"branch={found['branch']}\n")
-              out.write(f"kernel_version={found['kernel_version']}\n")
-              out.write(f"tag={found['tag']}\n")
-              out.write(f"sha1={found['sha1']}\n")
-              out.write(f"kernel_bid={found['kernel_bid']}\n")
-          PY
-
-      - name: Clone AOSP kernel common
+      # branch ini terverifikasi ada & dipakai untuk build serupa (lihat referensi NXP)
+      - name: repo init (branch common-android14-6.1, untuk tooling bazel/build)
         run: |
-          git clone \
+          mkdir -p ~/kernel && cd ~/kernel
+          repo init -u https://android.googlesource.com/kernel/manifest \
+                    -b common-android14-6.1 \
+                    --depth=1
+
+      - name: repo sync
+        run: |
+          cd ~/kernel
+          repo sync -c -j$(nproc) --no-tags -q
+
+      # override folder common/ agar tepat di commit android14-6.1.174_r00
+      # (repo sync di atas menarik HEAD terbaru branch, bukan versi .174 persis)
+      - name: Checkout kernel/common tepat ke commit android14-6.1.174_r00
+        run: |
+          cd ~/kernel/common
+          git fetch --depth=1 origin 8a20a57e3d2fbfb94c9548b002ed0298f93d4e75
+          git checkout -q FETCH_HEAD
+          echo "Kernel/common sekarang di commit: $(git rev-parse HEAD)"
+          echo "(harus 8a20a57e3d2fbfb94c9548b002ed0298f93d4e75)"
+
+      - name: Build GKI aarch64 (bazel)
+        run: |
+          cd ~/kernel
+          tools/bazel run --disk_cache=/home/runner/.cache/bazel \
+                    --config=fast --config=stamp --lto=thin \
+                    //common:kernel_aarch64_dist -- --dist_dir=dist
+
+      - name: Upload hasil build
+        uses: actions/upload-artifact@v4
+        with:
+          name: gki-android14-6.1.174-aarch64
+          path: ~/kernel/dist/*
+          retention-days: 14
             https://android.googlesource.com/kernel/common.git \
             kernel
 
