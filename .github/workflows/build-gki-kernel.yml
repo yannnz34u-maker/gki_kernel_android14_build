@@ -24,64 +24,64 @@ jobs:
             libssl-dev libelf-dev \
             python3 zip unzip cpio rsync \
             pahole lz4 zstd
-
       - name: Clone GKI source
         run: |
           git clone --depth=1 \
             --branch "${{ inputs.gki_tag }}" \
             https://android.googlesource.com/kernel/common.git \
             kernel
-
       - name: Clone AOSP Clang
         run: |
           git clone --depth=1 \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
             clang
 
+          echo "===== ISI FOLDER CLANG ====="
+          find "$GITHUB_WORKSPACE/clang" -maxdepth 2
+
+          CLANG_BIN=$(find "$GITHUB_WORKSPACE/clang" -maxdepth 3 -type f -name clang | head -n1 | xargs dirname)
+
+          if [ -z "$CLANG_BIN" ]; then
+            echo "ERROR: binary clang tidak ditemukan di dalam folder clang/"
+            exit 1
+          fi
+
+          echo "CLANG_BIN ditemukan di: $CLANG_BIN"
+          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
       - name: Configure GKI
         working-directory: kernel
         run: |
-          export PATH="$GITHUB_WORKSPACE/clang/clang-r487747/bin:$PATH"
-
-          make O=out ARCH=arm64 gki_defconfig
-
+          export PATH="$CLANG_BIN:$PATH"
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
       - name: Build Image
         working-directory: kernel
         run: |
-          export PATH="$GITHUB_WORKSPACE/clang/clang-r487747/bin:$PATH"
-
+          export PATH="$CLANG_BIN:$PATH"
           make -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
             LLVM=1 \
             LLVM_IAS=1
-
       - name: Check Image
         run: |
           ls -lh kernel/out/arch/arm64/boot/Image
-
       - name: Prepare AnyKernel3
         run: |
           git clone --depth=1 \
             https://github.com/osm0sis/AnyKernel3.git \
             AnyKernel3
-
           cp kernel/out/arch/arm64/boot/Image \
             AnyKernel3/Image
-
       - name: Fix AnyKernel3 metadata
         working-directory: AnyKernel3
         run: |
           sed -i \
             's/^kernel.string=.*/kernel.string=GKI Android14-6.1 POCO X7 (Malachite)/' \
             anykernel.sh || true
-
           sed -i \
             's/^device.name1=.*/device.name1=malachite/' \
             anykernel.sh || true
-
           sed -i '/^device.name[2-9]=/d' anykernel.sh || true
-
       - name: Create AnyKernel3 ZIP
         working-directory: AnyKernel3
         run: |
@@ -91,7 +91,6 @@ jobs:
             -x ".git/*" \
             -x "README.md" \
             -x "*placeholder*"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
